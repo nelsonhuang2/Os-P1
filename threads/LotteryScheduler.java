@@ -87,7 +87,7 @@ public class LotteryScheduler extends PriorityScheduler {
             int totalTickets = this.getEffectivePriority();
             int winner = 0;
 			if(totalTickets > 0){
-				winner = entropy.nextInt(totalTickets)
+				winner = entropy.nextInt(totalTickets);
 			}
             for (final ThreadState thread : this.threadsList) {
                 Lib.assertTrue(thread instanceof LotteryThreadState);
