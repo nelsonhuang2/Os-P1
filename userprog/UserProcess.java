@@ -380,6 +380,7 @@ public class UserProcess {
             if (fd != -1) {
                 files[fd] = file;
                 fileNames[fd] = fileName;
+                filePositions[fd] = 0;
                 return fd;
             } else {
                 return -1;
@@ -406,6 +407,7 @@ public class UserProcess {
             if (fd != -1) {
                 files[fd] = file;
                 fileNames[fd] = fileName;
+                filePositions[fd] = 0;
                 return fd;
             } else {
                 return -1;
@@ -440,6 +442,19 @@ public class UserProcess {
         if (fd < 0 || fd >= MAX_FD || files[fd] == null) {
             return -1;
         }
+
+        byte buffer[] = new byte[size];
+
+        OpenFile currentFile = files[fd];
+        int bytesRead = currentFile.read(filePositions[fd], buffer, 0, size);
+
+        if (bytesRead >= 0) {
+            writeVirtualMemory(address, buffer);
+            filePositions[fd] += bytesRead;
+            return bytesRead;
+        }
+
+        return -1;
     }
 
     /**
@@ -464,6 +479,19 @@ public class UserProcess {
         if (fd < 0 || fd >= MAX_FD || files[fd] == null) {
             return -1;
         }
+
+        byte buffer[] = new byte[size];
+
+        OpenFile currentFile = files[fd];
+        int bytesWritten = currentFile.write(filePositions[fd], buffer, 0, size);
+
+        if (bytesRead >= 0) {
+            readVirtualMemory(address, buffer);
+            filePositions[fd] += bytesWritten;
+            return bytesRead;
+        }
+
+        return -1;
     }
 
     /**
@@ -508,7 +536,7 @@ public class UserProcess {
     private int handleUnlink(int a0) {}
 
     private static final int
-        syscallHalt = 0,
+    syscallHalt = 0,
 	syscallExit = 1,
 	syscallExec = 2,
 	syscallJoin = 3,
