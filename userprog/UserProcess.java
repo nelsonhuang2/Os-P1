@@ -19,21 +19,21 @@ import java.io.EOFException;
  * @see	nachos.network.NetProcess
  */
 public class UserProcess {
-    // Initialize stdin and stdout
-    fileNames[fdStandardInput] = "stdin";
-    files[fdStandardInput] = UserKernel.console.openForReading();
-
-    fileName[fdStandardOutput] = "stdout";
-    files[fdStandardOutput] = UserKernel.console.openForWriting();
-
     /**
      * Allocate a new process.
      */
     public UserProcess() {
-	int numPhysPages = Machine.processor().getNumPhysPages();
-	pageTable = new TranslationEntry[numPhysPages];
-	for (int i=0; i<numPhysPages; i++)
-	    pageTable[i] = new TranslationEntry(i,i, true,false,false,false);
+        int numPhysPages = Machine.processor().getNumPhysPages();
+        pageTable = new TranslationEntry[numPhysPages];
+        for (int i=0; i<numPhysPages; i++) {
+            pageTable[i] = new TranslationEntry(i,i, true,false,false,false);
+        }
+        // Initialize stdin and stdout
+        fileNames[fdStandardInput] = "stdin";
+        files[fdStandardInput] = UserKernel.console.openForReading();
+    
+        fileNames[fdStandardOutput] = "stdout";
+        files[fdStandardOutput] = UserKernel.console.openForWriting();    
     }
     
     /**
@@ -44,7 +44,7 @@ public class UserProcess {
      * @return	a new process of the correct class.
      */
     public static UserProcess newUserProcess() {
-	return (UserProcess)Lib.constructObject(Machine.getProcessClassName());
+	    return (UserProcess)Lib.constructObject(Machine.getProcessClassName());
     }
 
     /**
@@ -380,6 +380,7 @@ public class UserProcess {
             if (fd != -1) {
                 files[fd] = file;
                 fileNames[fd] = fileName;
+                fileOffsets[fd] = 0;
                 return fd;
             } else {
                 return -1;
@@ -406,6 +407,7 @@ public class UserProcess {
             if (fd != -1) {
                 files[fd] = file;
                 fileNames[fd] = fileName;
+                fileOffsets[fd] = 0;
                 return fd;
             } else {
                 return -1;
@@ -440,6 +442,19 @@ public class UserProcess {
         if (fd < 0 || fd >= MAX_FD || files[fd] == null) {
             return -1;
         }
+
+        byte buffer[] = new byte[size];
+
+        OpenFile currentFile = files[fd];
+        int bytesRead = currentFile.read(fileOffsets[fd], buffer, 0, size);
+
+        if (bytesRead >= 0) {
+            writeVirtualMemory(address, buffer);
+            fileOffsets[fd] += bytesRead;
+            return bytesRead;
+        }
+
+        return -1;
     }
 
     /**
@@ -464,6 +479,19 @@ public class UserProcess {
         if (fd < 0 || fd >= MAX_FD || files[fd] == null) {
             return -1;
         }
+
+        byte buffer[] = new byte[size];
+
+        OpenFile currentFile = files[fd];
+        int bytesWritten = currentFile.write(fileOffsets[fd], buffer, 0, size);
+
+        if (bytesWritten >= 0) {
+            readVirtualMemory(address, buffer);
+            fileOffsets[fd] += bytesWritten;
+            return bytesWritten;
+        }
+
+        return -1;
     }
 
     /**
@@ -484,13 +512,21 @@ public class UserProcess {
      * Returns 0 on success, or -1 if an error occurred.
      */
     private int handleClose(int fd) {
-        if (fd < 0 || fd >= MAX_FD) {
+        // Check for invalid argument
+        if (fd < 0 || fd >= MAX_FD || files[fd] == null) {
             return -1;
         }
     
         files[fd].close();
 
-        return 0;
+        boolean success = true;
+        if (removeFile[fd]) {
+            success = UserKernel.fileSystem.remove(fileNames[fd]);
+            removeFile[fd] = false;
+        }
+        fileNames[fd] = null;
+
+        return success ? 0 : -1;
     }
 
     /**
@@ -505,10 +541,21 @@ public class UserProcess {
      *
      * Returns 0 on success, or -1 if an error occurred.
      */
-    private int handleUnlink(int a0) {}
+    private int handleUnlink(int a0) {
+        String fileName = readVirtualMemoryString(a0, MAX_STRING_LEN);
+
+        int fd = -1;
+        boolean success = true;
+        if (fd != -1) {
+            success = UserKernel.fileSystem.remove(fileName);
+        } else {
+            removeFile[fd] = true;
+        }
+        return success ? 0 : -1;
+    }
 
     private static final int
-        syscallHalt = 0,
+    syscallHalt = 0,
 	syscallExit = 1,
 	syscallExec = 2,
 	syscallJoin = 3,
@@ -552,11 +599,11 @@ public class UserProcess {
             case syscallHalt:
                 return handleHalt();
             case syscallExit:
-                return handleExit(a0);
+                //return handleExit(a0);
             case syscallExec:
-                return handleExec(a0, a1, a2);
+                //return handleExec(a0, a1, a2);
             case syscallJoin:
-                return handleJoin(a0, a1);
+                //return handleJoin(a0, a1);
             case syscallCreate:
                 return handleCreate(a0);
             case syscallOpen:
@@ -626,8 +673,8 @@ public class UserProcess {
     private static final char dbgProcess = 'a';
 
     // File descriptors of stdin and stdout
-    private static final int fdStandardInput = 0
-    private static final int fdStandardOutput = 1	1
+    private static final int fdStandardInput = 0;
+    private static final int fdStandardOutput = 1;
 
     /// Index of the 3 arrays act as file descriptors
     // Array of files
@@ -636,7 +683,8 @@ public class UserProcess {
     // Array of fileNames
     private static final int MAX_STRING_LEN = 256;
     private static String fileNames[] = new String[MAX_FD];
-    // Array of filePositions
-    private static int filePositions[] = new int[MAX_FD];
-
+    // Array of fileOffsets
+    private static int fileOffsets[] = new int[MAX_FD];
+    // Array of removeFiles
+    private static boolean removeFile[] = new boolean[MAX_FD];
 }
