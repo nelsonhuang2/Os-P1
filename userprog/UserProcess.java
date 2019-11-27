@@ -332,7 +332,7 @@ public class UserProcess {
 	int argsSize = 0;
 	for (int i=0; i<args.length; i++) {
 	    argv[i] = args[i].getBytes();
-	    // 4 bytes for argv[] pointer; then string plus one for null byte
+	    // 4 bytes for argv[] argsAddress; then string plus one for null byte
 	    argsSize += 4 + argv[i].length + 1;
 	}
 	if (argsSize > pageSize) {
@@ -344,7 +344,7 @@ public class UserProcess {
 	// program counter initially points at the program entry point
 	initialPC = coff.getEntryPoint();	
 
-	// next comes the stack; stack pointer initially points to top of it
+	// next comes the stack; stack argsAddress initially points to top of it
 	numPages += stackPages;
 	initialSP = numPages*pageSize;
 
@@ -430,7 +430,7 @@ public class UserProcess {
     /**
      * Initialize the processor's registers in preparation for running the
      * program loaded into this process. Set the PC register to point at the
-     * start function, set the stack pointer register to point at the top of
+     * start function, set the stack argsAddress register to point at the top of
      * the stack, set the A0 and A1 registers to argc and argv, respectively,
      * and initialize all other registers to 0.
      */
@@ -470,6 +470,44 @@ public class UserProcess {
 	return 0;
     }
 
+
+private int handleExec(int filenameaddr, int argc, int argAddress){
+	
+		String filename = readVirtualMemoryString(filenameaddr, 256);
+		if (filename == null || filenameaddr < 0){    // Check string filename
+				return -1;
+		}
+
+		// Check arguments
+		if (argc < 0){
+				return -1;
+		}
+		String[] argument = new String[argc];
+		for(int i=0; i < argc; i++ ){
+			byte[] argsAddress = new byte[4];
+			int byteRead = readVirtualMemory(argAddress + (i*4), argsAddress);
+			if (byteRead != 4){    	// check argsAddress
+					return -1;
+			}
+			int argvaddr = Lib.bytesToInt(argsAddress, 0);
+			
+			String argum = readVirtualMemoryString(argvaddr, 256);
+			if (argum == null){    // check argum
+					return -1;
+			}
+			argument[i] = argum;
+		}
+
+		UserProcess cprocess = UserProcess.newUserProcess();
+		if (cprocess.execute(filename, argument)){
+			cprocess.parentProcess = this;
+			this.childProcesses.add(cprocess);
+			return cprocess.pid;
+		}else{
+			return -1;
+		} 	
+}
+ 
     /**
      * Attempt to open the named disk file, creating it if it does not exist,
      * and return a file descriptor that can be used to access the file.
@@ -765,6 +803,12 @@ public class UserProcess {
 
     /** The program being run by this process. */
     protected Coff coff;
+    
+	private UserProcess childProcesses ;
+	childProcesses = new LinkedList<UserProcess>();
+	private UserProcess parentProcess;
+	parentProcess = null;	
+	private int pid; //ProcessID
 
     /** This process's page table. */
     protected TranslationEntry[] pageTable;

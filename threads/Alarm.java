@@ -81,5 +81,5 @@ public class Alarm {
 		KThread.sleep();
 		Machine.interrupt().restore(status); //re-enable interrupt
 	}
-	
+
 }
