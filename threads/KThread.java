@@ -183,7 +183,7 @@ public class KThread {
      */
     public static void finish() {
         Lib.debug(dbgThread, "Finishing thread: " + currentThread.toString());
-        
+
         Machine.interrupt().disable();
 
         Machine.autoGrader().finishingCurrentThread();
@@ -193,13 +193,13 @@ public class KThread {
 
 
         currentThread.status = statusFinished;
-        
-        sleep();
 
         if (joinQueue != null) {
             KThread nextThread = joinQueue.nextThread();
             nextThread.ready();
         }
+        
+        sleep();
     }
 
     /**
@@ -282,6 +282,10 @@ public class KThread {
         Lib.assertTrue(this != currentThread);
 
         boolean intStatus = Machine.interrupt().disable();
+        if (joinQueue == null) {
+            joinQueue = ThreadedKernel.scheduler.newThreadQueue(false);
+	        joinQueue.acquire(this);	  
+        }
         if (this != currentThread && status != statusFinished && joined == false) {
             joined = true;
             joinQueue.waitForAccess(currentThread);
@@ -415,52 +419,6 @@ public class KThread {
         Lib.debug(dbgThread, "Enter KThread.selfTest");
         new KThread(new PingTest(1)).setName("forked thread").fork();
         new PingTest(0).run();
-
-        Runnable myrunnable1 = new Runnable() {
-            public void run() { 
-                int i = 0;
-                while(i < 10) { 
-                    System.out.println("*** in while1 loop " + i + " ***");
-                    i++;
-                } /*yield();*/ 
-            }
-        };
-
-        KThread testThread = new KThread(myrunnable1);
-        testThread.setName("child 1");
-
-
-        // t1.join();
-
-        Runnable myrunnable2 = new Runnable() {
-            public void run() { 
-                System.out.println("selfTest2::Runnable");
-                testThread.join();
-                int i = 0;
-                while(i < 10) { 
-                    System.out.println("*** in while2 loop " + i + " ***");
-                    i++;
-                } /*yield();*/ 
-            }
-        };
-
-        KThread t2 = new KThread(myrunnable2);
-        t2.setName("child 2");
-
-        System.out.println("*** t2.fork ***");
-        t2.fork();
-
-        System.out.println("*** t1.fork ***");
-        testThread.fork();
-
-
-        System.out.println("*** [hy] enter join ***");
-        t2.join();
-        System.out.println("*** [hy] leave join ***");
-        // t2.join();
-
-        // Add current thread to ready queue, and switch context
-        yield();
     }
 
     private static final char dbgThread = 't';

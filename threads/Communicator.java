@@ -17,20 +17,22 @@ public class Communicator {
     private int waitingListeners;
     private int waitingSpeakers;
     private int message;
-    private int word;
-    private boolean messageReceived;
+    private boolean messageReadyToListen;
     private Condition2 activeSpeaker;
     private Condition2 activeListener;
+    private Condition2 speakerQueue;
+    private Condition2 listenerQueue;
 
     public Communicator() {
         master = new Lock();
         waitingListeners = 0;
         waitingSpeakers = 0;
-        messageReceived = false;
+        messageReadyToListen = false;
         message = 0;
-	word = 0;
         activeSpeaker = new Condition2(master);
         activeListener = new Condition2(master);
+        speakerQueue = new Condition2(master);
+        listenerQueue = new Condition2(master);
     }
 
     /**
@@ -45,14 +47,24 @@ public class Communicator {
      */
     public void speak(int word) {
         master.acquire();
+        // ensure only 1 waiting speaker is sleeping as active speaker while the rest sleep in queue
+        while (waitingSpeakers == 1) {
+            speakerQueue.sleep();
+        }
         waitingSpeakers++;
-        while(waitingSpeakers > 0 || !messageReceived){
+        // wait for a listener to pair with
+        while (waitingListeners == 0 || messageReadyToListen == true) {
             activeSpeaker.sleep();
         }
-        message = word;
-        messageReceived = true;
-        activeListener.wakeAll();
         waitingSpeakers--;
+        message = word;
+        messageReadyToListen = true;
+        // wake up pair listener
+        activeListener.wake();
+
+        // wake up next speaker in queue
+        speakerQueue.wake();
+
         master.release();
     }
 
@@ -64,14 +76,23 @@ public class Communicator {
      */    
     public int listen() {
         master.acquire();
+        // ensure only 1 waiting listener is sleeping as active listener while the rest sleep in queue
+        while (waitingListeners == 1) {
+            listenerQueue.sleep();
+        }
         waitingListeners++;
-        while(!messageReceived){
-            activeSpeaker.wakeAll();
+        // wait for a speaker to pair with
+        while (messageReadyToListen == false) {
+            activeSpeaker.wake();
             activeListener.sleep();
         }
-	int temp = this.word;
         waitingListeners--;
+        messageReadyToListen = false;
+
+        // wake up next listener in queue
+        listenerQueue.wake();
+
         master.release();
-        return temp;
+        return message;
     }
 }
