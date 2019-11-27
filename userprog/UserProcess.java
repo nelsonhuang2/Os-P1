@@ -134,20 +134,66 @@ public class UserProcess {
      *			the array.
      * @return	the number of bytes successfully transferred.
      */
-    public int readVirtualMemory(int vaddr, byte[] data, int offset,
-				 int length) {
-	Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+        public int readVirtualMemory(int vaddr, byte[] data, int offset, int length) {
+        Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+        int end = vaddr + length;
+        if(length > Machine.process().makeAddress(numPages-1, pageSize-1)- vaddr){
+            length = Machine.process().makeAddress(numPages-1, pageSize-1)- vaddr;
+        }
 
-	byte[] memory = Machine.processor().getMemory();
-	
-	// for now, just assume that virtual addresses equal physical addresses
-	if (vaddr < 0 || vaddr >= memory.length)
-	    return 0;
+        if(vaddr < 0){
+            vaddr = 0;
+        }
+        
 
-	int amount = Math.min(length, memory.length-vaddr);
-	System.arraycopy(memory, vaddr, data, offset, amount);
+        byte[] memory = Machine.processor().getMemory();
+        
+        int fvpage = Machine.processor().pageFromAddress(vaddr);
+        int lvpage = Machine.processor().pageFromAddress(end);
+        
+        
 
-	return amount;
+        int bytesTrans = 0;
+
+        for(int i = fvpage; i <= lvpage;i++){
+            if(!pageTable[i].valid){
+                return bytesTrans;
+            }
+
+            int voffset = 0;
+            int poffset = pageSize - 1;
+
+            int fvaddress = Machine.processor().makeAddress(i, 0);
+            int lvaddress = Machine.processor().makeAddress(i, pageSize - 1);
+            
+            // the first page
+            if(vaddr > fvpage && end >= lvaddress){
+                voffset = vaddr - fvaddress;
+            }
+            // the middle page
+            else if(vaddr <= fvaddress && end >= lvaddress){
+                // keep defaults 
+            }
+            // the last page 
+            else if(vaddr <= fvaddress && end < lvaddress){
+                poffset = end - fvaddress;
+            }
+            //special case
+            else{
+                voffset = vaddr - fvaddress;
+                poffset = end - fvaddress;
+            }
+
+            int fpaddress = Machine.processor().makeAddress(pageTable[i].ppn, voffset);
+            System.arraycopy(memory, fpaddress, data, offset+bytesTrans, poffset-voffset);
+
+            bytesTrans += (offset2-offset1);
+            pageTable[i].used = true;
+
+        }
+
+        return bytesTrans;
+
     }
 
     /**
@@ -177,20 +223,68 @@ public class UserProcess {
      *			virtual memory.
      * @return	the number of bytes successfully transferred.
      */
-    public int writeVirtualMemory(int vaddr, byte[] data, int offset,
-				  int length) {
+    public int writeVirtualMemory(int vaddr, byte[] data, int offset,int length) {
 	Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
 
 	byte[] memory = Machine.processor().getMemory();
 	
-	// for now, just assume that virtual addresses equal physical addresses
-	if (vaddr < 0 || vaddr >= memory.length)
-	    return 0;
+    int end = vaddr + length;
 
-	int amount = Math.min(length, memory.length-vaddr);
-	System.arraycopy(data, offset, memory, vaddr, amount);
+    if(length > Machine.process().makeAddress(numPages-1, pageSize-1)- vaddr){
+        length = Machine.process().makeAddress(numPages-1, pageSize-1)- vaddr;
+    }
 
-	return amount;
+    if(vaddr < 0){
+        vaddr = 0;
+    }
+    
+    int fvpage = Machine.processor().pageFromAddress(vaddr);
+    int lvpage = Machine.processor().pageFromAddress(end);
+    
+    
+
+    int bytesTrans = 0;
+
+    for(int i = fvpage; i <= lvpage;i++){
+        if(!pageTable[i].valid || pageTable[i].readOnly){
+            return bytesTrans;
+        }
+
+        int voffset = 0;
+        int poffset = pageSize - 1;
+
+        int fvaddress = Machine.processor().makeAddress(i, 0);
+        int lvaddress = Machine.processor().makeAddress(i, pageSize - 1);
+        
+        // the first page
+        if(vaddr > fvpage && end >= lvaddress){
+            voffset = vaddr - fvaddress;
+        }
+        // the middle page
+        else if(vaddr <= fvaddress && end >= lvaddress){
+            // keep defaults 
+        }
+        // the last page 
+        else if(vaddr <= fvaddress && end < lvaddress){
+            poffset = end - fvaddress;
+        }
+        //special case
+        else{
+            voffset = vaddr - fvaddress;
+            poffset = end - fvaddress;
+        }
+
+        int fpaddress = Machine.processor().makeAddress(pageTable[i].ppn, voffset);
+        System.arraycopy(data, offset+bytesTrans, memory, fpaddress, poffset - voffset);
+
+        bytesTrans += (offset2-offset1);
+        pageTable[i].used = true;
+        pageTable[i].dirty = true;
+
+    }
+
+    return bytesTrans;
+
     }
 
     /**
@@ -259,7 +353,7 @@ public class UserProcess {
 
 	if (!loadSections())
 	    return false;
-
+ 
 	// store arguments in last page
 	int entryOffset = (numPages-1)*pageSize;
 	int stringOffset = entryOffset + args.length*4;
@@ -305,8 +399,7 @@ public class UserProcess {
 	    for (int i=0; i<section.getLength(); i++) {
 		int vpn = section.getFirstVPN()+i;
 
-		// for now, just assume virtual addresses=physical addresses
-		section.loadPage(i, vpn);
+		section.loadPage(i, pageTable[vpn].ppn);
 	    }
 	}
 	
@@ -317,7 +410,22 @@ public class UserProcess {
      * Release any resources allocated by <tt>loadSections()</tt>.
      */
     protected void unloadSections() {
-    }    
+        UserKernal.lock.aquire();
+
+        for(int i = 0 ; i < numPages; i++){
+            UserKernal.availablePages.add(pageTable[i].ppn);
+        }
+        
+        UserKernal.lock.release();
+
+        for(int i = 0; i < 16; i++){
+            if(FileDescriptorTable[i] != null){
+                FileDescriptorTable[i].close();
+            }
+        }
+        
+        coff.close();
+    }      
 
     /**
      * Initialize the processor's registers in preparation for running the
