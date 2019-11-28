@@ -37,10 +37,11 @@ public class UserProcess {
     
         fileNames[fdStandardOutput] = "stdout";
         files[fdStandardOutput] = UserKernel.console.openForWriting();    
-        cprocesses = new LinkedList<UserProcess>(); // childProcesses
-		pprocess = null; // parentProcesses
-		estats = new HashMap<Integer,Integer>(); // exitStatuses
+        pprocess = null; // parentProcesses
+		cprocesses = new LinkedList<UserProcess>(); // childProcesses
 		mlock = new Lock(); //mapLock
+		estats = new HashMap<Integer,Integer>(); // exitStatuses
+		
     }
     
     /**
@@ -480,16 +481,15 @@ public class UserProcess {
     
  	private int handleExit(int stat){ // status
  		coff.close();
- 		if (pprocess != null)
+ 		if (pprocess != null) //
  		{
  			pprocess.mlock.acquire();
  			pprocess.estats.put(pid, stat);
  			pprocess.mlock.release();
- 			pprocess.cprocesses.remove(this);
  		}
  		unloadSections();
  		if (pid == 0) {
- 			Kernel.kernel.terminate(); //root exiting
+ 			Kernel.kernel.terminate();
  		} else {
  			UThread.finish();
  		}
@@ -516,10 +516,6 @@ public class UserProcess {
 		mlock.acquire();
 		Integer stat = estats.get(cprocess.pid);
  		mlock.release();
- 		
- 		// remove the child
- 		cprocesses.remove(cprocess);
- 		cprocess.pprocess = null;
  		
  		byte[] cstat = new byte[4];
  		Lib.bytesFromInt(cstat, 0, stat);
@@ -904,3 +900,4 @@ public class UserProcess {
     private static int fileOffsets[] = new int[MAX_FD];
     // Array of removeFiles
     private static boolean removeFile[] = new boolean[MAX_FD];
+}
